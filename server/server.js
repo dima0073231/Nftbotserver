@@ -71,6 +71,47 @@ app.get("/api/users/:telegramId/inventory", async (req, res) => {
     res.status(500).json({ error: "Ошибка сервера" });
   }
 });
+app.patch("/api/users/:telegramId/inventory/remove", async (req, res) => {
+  try {
+    const telegramId = Number(req.params.telegramId);
+    const { itemId, countToRemove = 1 } = req.body;
+
+    if (!itemId) {
+      return res.status(400).json({ error: "Необхідно вказати itemId" });
+    }
+
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ error: "Користувача не знайдено" });
+    }
+
+    const itemIndex = user.inventory.findIndex(
+      item => item.itemId === itemId
+    );
+
+    if (itemIndex === -1 || user.inventory[itemIndex].count < countToRemove) {
+      return res.status(400).json({ error: "Недостатньо подарунків у інвентарі" });
+    }
+
+    user.inventory[itemIndex].count -= countToRemove;
+
+    // Якщо кількість подарунків стала 0, видаляємо його з інвентаря
+    if (user.inventory[itemIndex].count === 0) {
+      user.inventory.splice(itemIndex, 1);
+    }
+
+    await user.save();
+
+    res.json({
+      message: "Подарунок успішно використано для ставки",
+      inventory: user.inventory
+    });
+  } catch (err) {
+    console.error("Помилка при видаленні подарунка:", err);
+    res.status(500).json({ error: "Помилка сервера" });
+  }
+});
+
 app.patch("/api/users/:telegramId/inventory", async (req, res) => {
   try {
     const telegramId = req.params.telegramId;
