@@ -82,36 +82,32 @@ app.get('/api/ton/transaction/:txHash', async (req, res) => {
 app.post('/api/cryptobot/create-invoice', async (req, res) => {
   console.log('Запрос на создание инвойса:', req.body); // Логирование входящих данных
 
-  const { amount, test, telegramId } = req.body;
+  const { amount, telegramId } = req.body; // Удалён параметр test
 
   // Проверка и валидация telegramId
   const validatedTelegramId = Number(telegramId);
   if (!validatedTelegramId || isNaN(validatedTelegramId)) {
-    console.error('Ошибка: Некорректный telegramId');
+    console.error('Ошибка: Некорректный telegramId:', telegramId);
     return res.status(400).json({ ok: false, error: 'Некорректный telegramId' });
   }
 
-  if (!amount) {
-    console.error('Ошибка: Не указана сумма');
-    return res.status(400).json({ ok: false, error: 'Не указана сумма' });
+  if (!amount || isNaN(Number(amount))) {
+    console.error('Ошибка: Не указана сумма или сумма некорректна:', amount);
+    return res.status(400).json({ ok: false, error: 'Не указана сумма или сумма некорректна' });
   }
 
   try {
-    const generatedInvoiceId = test
-      ? `test_invoice_${Date.now()}`
-      : `real_invoice_${Date.now()}`;
+    const generatedInvoiceId = `invoice_${Date.now()}`;
 
     const newInvoice = new Invoice({
       invoiceId: generatedInvoiceId,
       telegramId: validatedTelegramId,
-      amount,
+      amount: Number(amount),
       status: 'pending',
     });
     await newInvoice.save();
 
-    const payUrl = test
-      ? `https://t.me/nftgo_bot?start=invoice_${generatedInvoiceId}`
-      : `https://pay.crypt.bot/invoice/${generatedInvoiceId}`;
+    const payUrl = `https://pay.crypt.bot/invoice/${generatedInvoiceId}`;
 
     console.log('Инвойс успешно создан:', { invoiceId: generatedInvoiceId, payUrl });
     res.json({ ok: true, result: { invoice_id: generatedInvoiceId, pay_url: payUrl } });
