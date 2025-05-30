@@ -89,7 +89,7 @@ app.post("/api/cryptobot/create-invoice", async (req, res) => {
         amount: amount.toString(), // CryptoBot API требует строку
         description: "Пополнение через NFTGo",
         hidden_message: "Спасибо за пополнение!",
-        paid_btn_name: "open_bot",
+        paid_btn_name: "openBot", // исправлено на валидное значение
         paid_btn_url: "https://t.me/nftgo_bot"
       },
       {
