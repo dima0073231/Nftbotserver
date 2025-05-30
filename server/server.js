@@ -55,7 +55,48 @@ async function verifyCryptoBotInvoice(invoiceId) {
     return null;
   }
 }
+// Получить статус TON-транзакции по хешу
+app.get('/api/ton/transaction/:txHash', async (req, res) => {
+  try {
+    const txHash = req.params.txHash;
+    if (!txHash) return res.status(400).json({ ok: false, error: "txHash required" });
 
+    const response = await axios.get(
+      `https://toncenter.com/api/v2/getTransaction?hash=${txHash}&api_key=${process.env.TONCENTER_API_TOKEN}`
+    );
+    if (response.data.ok && response.data.result) {
+      return res.json({ ok: true, result: response.data.result });
+    }
+    return res.status(404).json({ ok: false, error: "Transaction not found" });
+  } catch (error) {
+    console.error("Error verifying TON transaction:", error);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
+
+// Получить статус CryptoBot invoice по invoiceId
+app.get('/api/cryptobot/invoice/:invoiceId', async (req, res) => {
+  try {
+    const invoiceId = req.params.invoiceId;
+    if (!invoiceId) return res.status(400).json({ ok: false, error: "invoiceId required" });
+
+    const response = await axios.get(
+      `https://pay.crypt.bot/api/getInvoice?invoice_id=${invoiceId}`,
+      {
+        headers: {
+          "Crypto-Pay-API-Token": process.env.CRYPTOBOT_TOKEN
+        }
+      }
+    );
+    if (response.data.ok && response.data.result) {
+      return res.json({ ok: true, result: response.data.result });
+    }
+    return res.status(404).json({ ok: false, error: "Invoice not found" });
+  } catch (error) {
+    console.error("Error verifying CryptoBot invoice:", error);
+    res.status(500).json({ ok: false, error: "Server error" });
+  }
+});
 // Route for TON balance top-up
 app.post('/api/addbalance/ton', async (req, res) => {
   const { address, transactionHash } = req.body;
