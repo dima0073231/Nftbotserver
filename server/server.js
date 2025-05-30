@@ -111,13 +111,57 @@ app.post("/api/cryptobot/create-invoice", async (req, res) => {
   }
 });
 
-
-// Получить статус CryptoBot invoice по invoiceId
-app.get('/api/cryptobot/invoice/:invoiceId', async (req, res) => {
+app.post('/api/users/:telegramId/history', async (req, res) => {
+  let telegramId = Number(req.params.telegramId);
+  if (!telegramId || isNaN(telegramId)) {
+    return res.status(400).json({ error: 'Некорректный telegramId' });
+  }
+  const { date, betAmount, coefficient, result } = req.body;
+  if (!date || !betAmount || !coefficient || !result) {
+    return res.status(400).json({ error: 'Недостаточно данных' });
+  }
   try {
-    const invoiceId = req.params.invoiceId;
-    if (!invoiceId) return res.status(400).json({ ok: false, error: "invoiceId required" });
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+    user.gameHistory.push({ date, betAmount, coefficient, result });
+    await user.save();
+    res.status(200).json({ message: 'История добавлена' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
+app.post('/api/addbalance/ton', async (req, res) => {
+  let telegramId = Number(req.body.telegramId);
+  const amount = req.body.amount;
+  if (!telegramId || isNaN(telegramId) || typeof amount !== "number" || !isFinite(amount)) {
+    return res.status(400).json({ error: "Неверные данные" });
+  }
+  try {
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
+    }
+    user.balance += amount;
+    await user.save();
+    res.json({ message: "Баланс пополнен", balance: user.balance });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// === Новый роут: начисление баланса после оплаты CryptoBot ===
+app.post('/api/addbalance/cryptobot', async (req, res) => {
+  try {
+    let { telegramId, invoiceId } = req.body;
+    telegramId = Number(telegramId);
+    if (!telegramId || isNaN(telegramId) || !invoiceId) {
+      return res.status(400).json({ error: "Неверные данные (telegramId или invoiceId)" });
+    }
+
+    // Получаем статус инвойса
     const response = await axios.get(
       `https://pay.crypt.bot/api/getInvoice?invoice_id=${invoiceId}`,
       {
@@ -126,77 +170,30 @@ app.get('/api/cryptobot/invoice/:invoiceId', async (req, res) => {
         }
       }
     );
-    if (response.data.ok && response.data.result) {
-      return res.json({ ok: true, result: response.data.result });
+    if (!response.data.ok || !response.data.result) {
+      return res.status(400).json({ error: "Инвойс не найден или ошибка CryptoBot" });
     }
-    return res.status(404).json({ ok: false, error: "Invoice not found" });
-  } catch (error) {
-    console.error("Error verifying CryptoBot invoice:", error);
-    res.status(500).json({ ok: false, error: "Server error" });
-  }
-});
-// Route for TON balance top-up
-app.post('/api/addbalance/ton', async (req, res) => {
-  const { address, transactionHash } = req.body;
-  if (!address || !transactionHash) {
-    return res.status(400).json({ error: "Missing address or transaction hash" });
-  }
-
-  try {
-    const tx = await verifyTonTransaction(transactionHash);
-    if (!tx) {
-      return res.status(400).json({ error: "Transaction not found or invalid" });
+    const invoice = response.data.result;
+    if (invoice.status !== 'paid') {
+      return res.status(400).json({ error: "Инвойс не оплачен" });
     }
 
-    if (tx.aborted || tx.in_msg.dst.toLowerCase() !== TON_RECEIVER_WALLET.toLowerCase()) {
-      return res.status(400).json({ error: "Invalid transaction" });
+    // Начисляем сумму на баланс пользователя
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({ error: "Пользователь не найден" });
     }
+    const amount = Number(invoice.amount);
+    user.balance += amount;
+    await user.save();
 
-    const amountNano = BigInt(tx.in_msg.value);
-    const amountTon = Number(amountNano) / 1e9;
-
-    await User.updateOne(
-      { address: address.toLowerCase() },
-      { $inc: { balance: amountTon } }
-    );
-
-    res.json({ success: true, newBalance: amountTon });
-  } catch (error) {
-    console.error("Error in /api/addbalance/ton:", error);
-    res.status(500).json({ error: "Server error" });
+    res.json({ message: "Баланс успешно пополнен", balance: user.balance });
+  } catch (err) {
+    console.error("Ошибка при начислении баланса через CryptoBot:", err?.response?.data || err);
+    res.status(500).json({ error: "Ошибка сервера при начислении баланса" });
   }
 });
 
-// Route for CryptoBot balance top-up
-app.post('/api/addbalance/cryptobot', async (req, res) => {
-  const { address, invoiceId } = req.body;
-  if (!address || !invoiceId) {
-    return res.status(400).json({ error: "Missing address or invoice ID" });
-  }
-
-  try {
-    const invoice = await verifyCryptoBotInvoice(invoiceId);
-    if (!invoice) {
-      return res.status(400).json({ error: "Invoice not found or invalid" });
-    }
-
-    if (invoice.status !== "paid") {
-      return res.status(400).json({ error: "Invoice not paid" });
-    }
-
-    const amountTon = parseFloat(invoice.amount);
-
-    await User.updateOne(
-      { address: address.toLowerCase() },
-      { $inc: { balance: amountTon } }
-    );
-
-    res.json({ success: true, newBalance: amountTon });
-  } catch (error) {
-    console.error("Error in /api/addbalance/cryptobot:", error);
-    res.status(500).json({ error: "Server error" });
-  }
-});
 
 
 
