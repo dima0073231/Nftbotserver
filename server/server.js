@@ -5,14 +5,123 @@ const path = require("path");
 const connectDB = require("../db/db");
 const User = require("../models/user");
 const Promo = require("../models/promocode");
+const dotenv = require('dotenv'); // Load dotenv
 
+dotenv.config(); // Load .env file
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "..")));
 
+
+const axios = require("axios");
+
 connectDB();
+
+// Environment variables
+const TON_RECEIVER_WALLET = process.env.TON_RECEIVER_WALLET;
+const TONCENTER_API_TOKEN = process.env.TONCENTER_API_TOKEN;
+const CRYPTOBOT_TOKEN = process.env.CRYPTOBOT_TOKEN;
+
+// Function to verify TON transaction
+async function verifyTonTransaction(txHash) {
+  try {
+    const response = await axios.get(`https://toncenter.com/api/v2/getTransaction?hash=${txHash}&api_key=${TONCENTER_API_TOKEN}`);
+    if (response.data.ok && response.data.result) {
+      return response.data.result;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error verifying TON transaction:", error);
+    return null;
+  }
+}
+
+// Function to verify CryptoBot invoice
+async function verifyCryptoBotInvoice(invoiceId) {
+  try {
+    const response = await axios.get(`https://pay.crypt.bot/api/getInvoice?invoice_id=${invoiceId}`, {
+      headers: {
+        "Crypto-Pay-API-Token": CRYPTOBOT_TOKEN
+      }
+    });
+    if (response.data.ok && response.data.result) {
+      return response.data.result;
+    }
+    return null;
+  } catch (error) {
+    console.error("Error verifying CryptoBot invoice:", error);
+    return null;
+  }
+}
+
+// Route for TON balance top-up
+app.post('/api/addbalance/ton', async (req, res) => {
+  const { address, transactionHash } = req.body;
+  if (!address || !transactionHash) {
+    return res.status(400).json({ error: "Missing address or transaction hash" });
+  }
+
+  try {
+    const tx = await verifyTonTransaction(transactionHash);
+    if (!tx) {
+      return res.status(400).json({ error: "Transaction not found or invalid" });
+    }
+
+    if (tx.aborted || tx.in_msg.dst.toLowerCase() !== TON_RECEIVER_WALLET.toLowerCase()) {
+      return res.status(400).json({ error: "Invalid transaction" });
+    }
+
+    const amountNano = BigInt(tx.in_msg.value);
+    const amountTon = Number(amountNano) / 1e9;
+
+    await User.updateOne(
+      { address: address.toLowerCase() },
+      { $inc: { balance: amountTon } }
+    );
+
+    res.json({ success: true, newBalance: amountTon });
+  } catch (error) {
+    console.error("Error in /api/addbalance/ton:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// Route for CryptoBot balance top-up
+app.post('/api/addbalance/cryptobot', async (req, res) => {
+  const { address, invoiceId } = req.body;
+  if (!address || !invoiceId) {
+    return res.status(400).json({ error: "Missing address or invoice ID" });
+  }
+
+  try {
+    const invoice = await verifyCryptoBotInvoice(invoiceId);
+    if (!invoice) {
+      return res.status(400).json({ error: "Invoice not found or invalid" });
+    }
+
+    if (invoice.status !== "paid") {
+      return res.status(400).json({ error: "Invoice not paid" });
+    }
+
+    const amountTon = parseFloat(invoice.amount);
+
+    await User.updateOne(
+      { address: address.toLowerCase() },
+      { $inc: { balance: amountTon } }
+    );
+
+    res.json({ success: true, newBalance: amountTon });
+  } catch (error) {
+    console.error("Error in /api/addbalance/cryptobot:", error);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+
+
+
 
 app.patch("/api/users/:telegramId", async (req, res) => {
   try {
@@ -369,3 +478,4 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 Server started on port ${PORT}`);
 });
+
