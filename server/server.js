@@ -75,12 +75,109 @@ app.get('/api/ton/transaction/:txHash', async (req, res) => {
   }
 });
 
+// === Создание инвойса ===
+app.post('/api/cryptobot/create-invoice', async (req, res) => {
+  const { amount, test, telegramId } = req.body;
+  if (!amount || !telegramId) {
+    return res.status(400).json({ ok: false, error: 'Не указаны обязательные параметры' });
+  }
+
+  try {
+    const generatedInvoiceId = test
+      ? `test_invoice_${Date.now()}`
+      : `real_invoice_${Date.now()}`; // Генерация ID инвойса
+
+    const newInvoice = new Invoice({
+      invoiceId: generatedInvoiceId,
+      telegramId,
+      amount,
+      status: 'pending',
+    });
+    await newInvoice.save(); // Сохранение в базу данных
+
+    const payUrl = test
+      ? `https://t.me/nftgo_bot?start=invoice_${generatedInvoiceId}` // Тестовая ссылка для бота
+      : response.data.result.pay_url; // Реальная ссылка из API CryptoBot
+
+    res.json({ ok: true, result: { invoice_id: generatedInvoiceId, pay_url: payUrl } });
+  } catch (err) {
+    console.error('Ошибка создания инвойса:', err);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// === Проверка статуса инвойса ===
+app.get('/api/cryptobot/invoice/:id', async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const invoice = await Invoice.findOne({ invoiceId: id });
+    if (!invoice) {
+      return res.status(404).json({ ok: false, error: 'Инвойс не найден' });
+    }
+
+    res.json({ ok: true, result: { status: invoice.status } });
+  } catch (err) {
+    console.error('Ошибка проверки инвойса:', err);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// === Обновление статуса инвойса и пополнение баланса ===
+app.post('/api/cryptobot/update-invoice', async (req, res) => {
+  const { invoiceId, status } = req.body;
+
+  if (!invoiceId || !status) {
+    return res.status(400).json({ ok: false, error: 'Не указаны обязательные параметры' });
+  }
+
+  try {
+    const invoice = await Invoice.findOne({ invoiceId });
+    if (!invoice) {
+      return res.status(404).json({ ok: false, error: 'Инвойс не найден' });
+    }
+
+    invoice.status = status;
+    await invoice.save();
+
+    if (status === 'paid') {
+      // Пополнение баланса пользователя
+      const user = await User.findOne({ telegramId: invoice.telegramId });
+      if (user) {
+        user.balance += invoice.amount;
+        await user.save();
+      }
+    }
+
+    res.json({ ok: true, result: { message: 'Статус обновлён' } });
+  } catch (err) {
+    console.error('Ошибка обновления инвойса:', err);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
 app.post("/api/cryptobot/create-invoice", async (req, res) => {
   try {
-    let { amount } = req.body;
+    let { amount, test } = req.body;
     amount = Number(amount);
     if (!amount || isNaN(amount) || amount < 1) {
       return res.status(400).json({ ok: false, error: "Минимальная сумма — 1 TON" });
+    }
+
+    // Тестовый режим: не создаём реальный инвойс, а возвращаем фейковый invoice_id и ссылку
+    if (test) {
+      const fakeInvoiceId = 'test_invoice_' + Math.floor(Math.random() * 1000000);
+      const testBotUrl = `https://t.me/nftgo_bot?start=invoice_${fakeInvoiceId}`;
+      return res.json({
+        ok: true,
+        result: {
+          invoice_id: fakeInvoiceId,
+          pay_url: 'https://t.me/nftgo_bot',
+          status: 'paid',
+          paid_btn_url: testBotUrl,
+          test_bot_url: testBotUrl
+        }
+      });
     }
 
     const response = await axios.post(
@@ -90,7 +187,7 @@ app.post("/api/cryptobot/create-invoice", async (req, res) => {
         amount: amount.toString(), // CryptoBot API требует строку
         description: "Пополнение через NFTGo",
         hidden_message: "Спасибо за пополнение!",
-        paid_btn_name: "openBot", // исправлено на валидное значение
+        paid_btn_name: "openBot",
         paid_btn_url: "https://t.me/nftgo_bot"
       },
       {
@@ -104,6 +201,12 @@ app.post("/api/cryptobot/create-invoice", async (req, res) => {
     if (!response.data.ok) {
       return res.status(400).json({ ok: false, error: response.data.description || "Ошибка CryptoBot" });
     }
+
+    // Формируем ссылку для перехода в бота с invoiceId (для теста)
+    const invoiceId = response.data.result.invoice_id;
+    const testBotUrl = `https://t.me/nftgo_bot?start=invoice_${invoiceId}`;
+    response.data.result.test_bot_url = testBotUrl;
+    console.log('Ссылка для теста перехода в бота:', testBotUrl);
 
     res.json({ ok: true, result: response.data.result });
   } catch (err) {
