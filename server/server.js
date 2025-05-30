@@ -4,8 +4,10 @@ const path = require("path");
 
 const connectDB = require("../db/db");
 const User = require("../models/user");
+const Invoice = require("../models/invoice"); 
 const Promo = require("../models/promocode");
-const Invoice = require('../models/Invoice'); // путь подкорректируй, если нужно
+
+
 const dotenv = require('dotenv'); // Load dotenv
 
 dotenv.config(); // Load .env file
