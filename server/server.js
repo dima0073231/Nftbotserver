@@ -1,6 +1,7 @@
 const express = require("express");
 const cors = require("cors");
 const path = require("path");
+const CryptoBotAPI = require('crypto-bot-api');
 
 const connectDB = require("../db/db");
 const User = require("../models/user");
@@ -12,6 +13,8 @@ const dotenv = require('dotenv'); // Load dotenv
 
 dotenv.config(); // Load .env file
 const app = express();
+
+const cryptoBotClient = new CryptoBotAPI(process.env.CRYPTOBOT_TOKEN);
 
 app.use(cors());
 app.use(express.json());
