@@ -111,6 +111,15 @@ app.post('/api/cryptobot/create-invoice', async (req, res) => {
       return res.status(400).json({ ok: false, error: response.data.description || 'Ошибка CryptoBot' });
     }
 
+    // Сохранение инвойса в базу данных
+    const newInvoice = new Invoice({
+      invoiceId: response.data.result.invoice_id, // Убедимся, что invoice_id передается
+      telegramId: req.body.telegramId, // Telegram ID пользователя
+      amount, // Сумма инвойса
+      status: 'pending' // Статус инвойса
+    });
+    await newInvoice.save();
+
     res.json({ ok: true, result: response.data.result });
   } catch (err) {
     console.error('Ошибка при создании инвойса CryptoBot:', err?.response?.data || err);
