@@ -80,44 +80,39 @@ app.get('/api/ton/transaction/:txHash', async (req, res) => {
 
 // === Создание инвойса ===
 app.post('/api/cryptobot/create-invoice', async (req, res) => {
-  console.log('Запрос на создание инвойса:', req.body); // Логирование входящих данных
-
-  const { amount, test, telegramId } = req.body;
-
-  // Проверка и валидация telegramId
-  const validatedTelegramId = Number(telegramId);
-  if (!validatedTelegramId || isNaN(validatedTelegramId)) {
-    console.error('Ошибка: Некорректный telegramId');
-    return res.status(400).json({ ok: false, error: 'Некорректный telegramId' });
-  }
-
-  if (!amount) {
-    console.error('Ошибка: Не указана сумма');
-    return res.status(400).json({ ok: false, error: 'Не указана сумма' });
-  }
-
   try {
-    const generatedInvoiceId = test
-      ? `test_invoice_${Date.now()}`
-      : `real_invoice_${Date.now()}`;
+    let { amount } = req.body;
+    amount = Number(amount);
+    if (!amount || isNaN(amount) || amount < 1) {
+      return res.status(400).json({ ok: false, error: 'Минимальная сумма — 1 TON' });
+    }
 
-    const newInvoice = new Invoice({
-      invoiceId: generatedInvoiceId,
-      telegramId: validatedTelegramId,
-      amount,
-      status: 'pending',
-    });
-    await newInvoice.save();
+    const response = await axios.post(
+      'https://pay.crypt.bot/api/createInvoice',
+      {
+        asset: 'TON',
+        amount: amount.toString(), // CryptoBot API требует строку
+        description: 'Пополнение через NFTGo',
+        hidden_message: 'Спасибо за пополнение!',
+        paid_btn_name: 'openBot', // исправлено на валидное значение
+        paid_btn_url: 'https://t.me/nftgo_bot'
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Crypto-Pay-API-Token': process.env.CRYPTOBOT_TOKEN
+        }
+      }
+    );
 
-    const payUrl = test
-      ? `https://t.me/nftgo_bot?start=invoice_${generatedInvoiceId}`
-      : `https://pay.crypt.bot/invoice/${generatedInvoiceId}`;
+    if (!response.data.ok) {
+      return res.status(400).json({ ok: false, error: response.data.description || 'Ошибка CryptoBot' });
+    }
 
-    console.log('Инвойс успешно создан:', { invoiceId: generatedInvoiceId, payUrl });
-    res.json({ ok: true, result: { invoice_id: generatedInvoiceId, pay_url: payUrl } });
+    res.json({ ok: true, result: response.data.result });
   } catch (err) {
-    console.error('Ошибка создания инвойса:', err);
-    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+    console.error('Ошибка при создании инвойса CryptoBot:', err?.response?.data || err);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при создании инвойса' });
   }
 });
 
