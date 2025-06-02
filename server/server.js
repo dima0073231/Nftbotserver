@@ -82,6 +82,27 @@ app.get('/api/ton/transaction/:txHash', async (req, res) => {
   }
 });
 
+// === Сохранение TON-транзакций при пополнении ===
+app.post('/api/ton/add-transaction', async (req, res) => {
+  try {
+    const { txHash, telegramId, amount } = req.body;
+    if (!txHash || !telegramId || !amount) {
+      return res.status(400).json({ error: 'Необходимы txHash, telegramId и amount' });
+    }
+    // Проверка на дублирование
+    const exists = await TonTransaction.findOne({ txHash });
+    if (exists) {
+      return res.status(400).json({ error: 'Транзакция уже сохранена' });
+    }
+    const tx = new TonTransaction({ txHash, telegramId, amount, status: 'pending' });
+    await tx.save();
+    res.json({ ok: true, message: 'TON-транзакция сохранена', tx });
+  } catch (err) {
+    console.error('Ошибка при сохранении TON-транзакции:', err);
+    res.status(500).json({ error: 'Ошибка сервера при сохранении TON-транзакции' });
+  }
+});
+
 // === Создание инвойса ===
 app.post('/api/cryptobot/create-invoice', async (req, res) => {
   let { amount } = req.body;
