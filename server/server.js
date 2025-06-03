@@ -767,7 +767,7 @@ cron.schedule('*/2 * * * *', async () => {
     const invoices = await Invoice.find({ status: 'pending' });
     for (const invoice of invoices) {
       try {
-        // Новый способ получения инвойса через getInvoices
+        // Получаем актуальный статус инвойса через CryptoBot API
         const invoicesData = await cryptoBotClient.getInvoices({ invoice_ids: [invoice.invoiceId] });
         const invoiceData = invoicesData.items?.[0];
         if (invoiceData && invoiceData.status === 'paid') {
